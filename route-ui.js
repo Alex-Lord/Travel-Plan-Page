@@ -4,6 +4,7 @@ let mapInstance = 0;
 const MAP_ZOOM_MIN = 1;
 const MAP_ZOOM_MAX = 3;
 const MAP_ZOOM_STEP = 0.25;
+const MAP_LABEL_SCALE = 1.1;
 const transportNames = {
   drive: "自驾", train: "火车", rail: "火车", "cable-car": "缆车",
   hike: "步行", walk: "步行", return: "返程", "rental-car": "租车",
@@ -81,6 +82,12 @@ function mapArtwork(source, selected, id, viewport) {
     label.setAttribute("y", labelLayout.y);
     label.setAttribute("text-anchor", labelLayout.anchor || "start");
     label.querySelectorAll("tspan").forEach((line) => line.setAttribute("x", labelLayout.x));
+    const leader = doc.getElementById(`leader-${placeId}`);
+    if (leader) {
+      leader.dataset.labelX = labelLayout.x;
+      leader.dataset.labelY = labelLayout.y;
+      leader.setAttribute("d", `M${leader.dataset.pointX} ${leader.dataset.pointY} L${labelLayout.x} ${Number(labelLayout.y) - 8}`);
+    }
   });
   svg.querySelectorAll('[id^="leader-"]').forEach((line) => {
     if (!layout?.places.includes(line.id.replace("leader-", ""))) line.remove();
@@ -147,6 +154,8 @@ function setMapViewportZoom(viewport, requestedZoom, anchor = {}) {
   canvas.style.width = `${baseWidth * zoom}px`;
   canvas.style.minWidth = `${baseWidth * zoom}px`;
   canvas.style.setProperty("--map-inverse-zoom", String(1 / zoom));
+  canvas.style.setProperty("--map-label-inverse-zoom", String(MAP_LABEL_SCALE / zoom));
+  updateMapLeaderGeometry(canvas, zoom);
 
   const newWidth = canvas.getBoundingClientRect().width;
   const newHeight = canvas.getBoundingClientRect().height;
@@ -158,6 +167,35 @@ function setMapViewportZoom(viewport, requestedZoom, anchor = {}) {
   const zoomIn = block?.querySelector('[data-map-zoom-change]:not([data-map-zoom-change^="-"])');
   if (zoomOut) zoomOut.disabled = zoom <= MAP_ZOOM_MIN;
   if (zoomIn) zoomIn.disabled = zoom >= MAP_ZOOM_MAX;
+}
+
+function fixedMapOrigin(element, xName, yName) {
+  const x = Number(element.getAttribute(xName));
+  const y = Number(element.getAttribute(yName));
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  element.style.transformOrigin = `${x}px ${y}px`;
+}
+
+function prepareFixedMapElements(canvas) {
+  canvas.querySelectorAll("svg text").forEach((element) => {
+    element.classList.add(element.id.includes("overview-label-") ? "map-fixed-label" : "map-fixed-text");
+    fixedMapOrigin(element, "x", "y");
+  });
+  canvas.querySelectorAll('svg circle[id*="overview-point-"]').forEach((element) => {
+    element.classList.add("map-fixed-marker");
+    fixedMapOrigin(element, "cx", "cy");
+  });
+}
+
+function updateMapLeaderGeometry(canvas, zoom) {
+  canvas.querySelectorAll("svg [data-map-leader]").forEach((leader) => {
+    const pointX = Number(leader.dataset.pointX);
+    const pointY = Number(leader.dataset.pointY);
+    const labelX = Number(leader.dataset.labelX);
+    const labelY = Number(leader.dataset.labelY);
+    if (![pointX, pointY, labelX, labelY].every(Number.isFinite)) return;
+    leader.setAttribute("d", `M${pointX} ${pointY} L${labelX} ${labelY - 8 * MAP_LABEL_SCALE / zoom}`);
+  });
 }
 
 function touchGeometry(touches, bounds) {
@@ -175,8 +213,7 @@ function prepareInlineMapZoom(viewport) {
   if (!canvas) return;
   viewport.dataset.mapZoomReady = "true";
   canvas.dataset.mapZoomBaseWidth = String(canvas.getBoundingClientRect().width);
-  canvas.querySelectorAll("svg text, svg #overview-markers circle")
-    .forEach((element) => element.classList.add("map-fixed-size"));
+  prepareFixedMapElements(canvas);
   setMapViewportZoom(viewport, MAP_ZOOM_MIN);
 
   let pinch = null;

@@ -1,6 +1,9 @@
 /* Golden route interaction reused with frozen map templates. */
 let mapRoutes = [];
 let mapInstance = 0;
+const MAP_ZOOM_MIN = 1;
+const MAP_ZOOM_MAX = 3;
+const MAP_ZOOM_STEP = 0.25;
 const transportNames = {
   drive: "自驾", train: "火车", rail: "火车", "cable-car": "缆车",
   hike: "步行", walk: "步行", return: "返程", "rental-car": "租车",
@@ -128,6 +131,63 @@ function activateDayMaps(root) {
   });
 }
 
+function setMapDialogZoom(dialog, requestedZoom, anchor = {}) {
+  const viewport = dialog.querySelector("#map-dialog-content");
+  const canvas = viewport?.querySelector(".travel-map-canvas");
+  if (!viewport || !canvas) return;
+  const zoom = Math.min(MAP_ZOOM_MAX, Math.max(MAP_ZOOM_MIN, requestedZoom));
+  const oldWidth = canvas.getBoundingClientRect().width;
+  const oldHeight = canvas.getBoundingClientRect().height;
+  const anchorX = Number.isFinite(anchor.x) ? anchor.x : viewport.clientWidth / 2;
+  const anchorY = Number.isFinite(anchor.y) ? anchor.y : viewport.clientHeight / 2;
+  const ratioX = oldWidth ? (viewport.scrollLeft + anchorX) / oldWidth : 0.5;
+  const ratioY = oldHeight ? (viewport.scrollTop + anchorY) / oldHeight : 0.5;
+  const baseWidth = Number(canvas.dataset.mapZoomBaseWidth) || oldWidth;
+
+  canvas.dataset.mapZoom = String(zoom);
+  canvas.style.width = `${baseWidth * zoom}px`;
+  canvas.style.minWidth = `${baseWidth * zoom}px`;
+  canvas.style.setProperty("--map-inverse-zoom", String(1 / zoom));
+
+  const newWidth = canvas.getBoundingClientRect().width;
+  const newHeight = canvas.getBoundingClientRect().height;
+  viewport.scrollLeft = Math.max(0, ratioX * newWidth - anchorX);
+  viewport.scrollTop = Math.max(0, ratioY * newHeight - anchorY);
+  dialog.querySelector("#map-zoom-level").textContent = `${Math.round(zoom * 100)}%`;
+  dialog.querySelector("#map-zoom-out").disabled = zoom <= MAP_ZOOM_MIN;
+  dialog.querySelector("#map-zoom-in").disabled = zoom >= MAP_ZOOM_MAX;
+}
+
+function prepareMapDialog(dialog, source) {
+  if (!dialog || !source) return;
+  const viewport = dialog.querySelector("#map-dialog-content");
+  const copy = source.cloneNode(true);
+  const svg = copy.querySelector("svg");
+  if (!viewport || !svg) return;
+  const idMap = new Map([...svg.querySelectorAll("[id]")].map((element) => [element.id, `${element.id}-zoom`]));
+  svg.querySelectorAll("[id]").forEach((element) => { element.id = idMap.get(element.id); });
+  svg.querySelectorAll("*").forEach((element) => {
+    for (const attribute of [...element.attributes]) {
+      let value = attribute.value;
+      idMap.forEach((newId, oldId) => {
+        value = value.replaceAll(`url(#${oldId})`, `url(#${newId})`);
+        if (value === `#${oldId}`) value = `#${newId}`;
+      });
+      if (value !== attribute.value) element.setAttribute(attribute.name, value);
+    }
+  });
+  copy.removeAttribute("id");
+  copy.classList.toggle("daily-fullscreen", Boolean(source.closest(".is-daily")));
+  copy.style.setProperty("--route-color", getComputedStyle(source).getPropertyValue("--route-color"));
+  svg.querySelectorAll("text, #overview-markers-zoom circle").forEach((element) => element.classList.add("map-fixed-size"));
+  viewport.replaceChildren(copy);
+  dialog.showModal();
+  copy.dataset.mapZoomBaseWidth = String(copy.getBoundingClientRect().width);
+  setMapDialogZoom(dialog, MAP_ZOOM_MIN);
+  viewport.scrollLeft = Math.max(0, (copy.scrollWidth - viewport.clientWidth) / 2);
+  viewport.scrollTop = 0;
+}
+
 function renderRoutePanel(regionId, dayNumber = 0) {
   const root = $("#route-explorer");
   const routeMap = state.data?.routeMap;
@@ -145,6 +205,8 @@ function setupRouteExplorer() {
   renderRoutePanel();
   let activePin = null;
   let popover = null;
+  const mapDialog = $("#map-dialog");
+  const mapDialogContent = $("#map-dialog-content");
   const closePopover = (restoreFocus = false) => {
     const opener = activePin;
     if (opener) { opener.setAttribute("aria-expanded", "false"); opener.removeAttribute("aria-controls"); }
@@ -207,18 +269,10 @@ function setupRouteExplorer() {
     }
     if (event.target.closest(".route-popover")) return;
     closePopover();
-    const zoom = event.target.closest("[data-expand-map]");
-    if (zoom) {
-      const dialog = $("#map-dialog");
-      const source = document.getElementById(zoom.dataset.expandMap);
-      const copy = source.cloneNode(true);
-      const svg = copy.querySelector("svg");
-      const ids = [...svg.querySelectorAll("[id]")].map((element) => element.id);
-      for (const oldId of ids) svg.innerHTML = svg.innerHTML.replaceAll(`id="${oldId}"`, `id="${oldId}-zoom"`).replaceAll(`url(#${oldId})`, `url(#${oldId}-zoom)`);
-      copy.removeAttribute("id"); copy.classList.toggle("daily-fullscreen", Boolean(source.closest(".is-daily")));
-      copy.style.setProperty("--route-color", getComputedStyle(source).getPropertyValue("--route-color"));
-      $("#map-dialog-content").replaceChildren(copy); dialog.showModal();
-      const viewport = $("#map-dialog-content"); viewport.scrollLeft = Math.max(0, (copy.scrollWidth - viewport.clientWidth) / 2);
+    const expandButton = event.target.closest("[data-expand-map]");
+    if (expandButton) {
+      const source = document.getElementById(expandButton.dataset.expandMap);
+      prepareMapDialog(mapDialog, source);
     }
     const link = event.target.closest("[data-open-day]");
     if (link) {
@@ -230,6 +284,23 @@ function setupRouteExplorer() {
     const toggle = event.target.closest(".day-toggle");
     if (toggle && toggle.getAttribute("aria-expanded") === "true") activateDayMaps(toggle.closest(".day-card"));
   });
+  $("#map-zoom-out").onclick = () => {
+    const canvas = mapDialogContent.querySelector(".travel-map-canvas");
+    setMapDialogZoom(mapDialog, (Number(canvas?.dataset.mapZoom) || MAP_ZOOM_MIN) - MAP_ZOOM_STEP);
+  };
+  $("#map-zoom-in").onclick = () => {
+    const canvas = mapDialogContent.querySelector(".travel-map-canvas");
+    setMapDialogZoom(mapDialog, (Number(canvas?.dataset.mapZoom) || MAP_ZOOM_MIN) + MAP_ZOOM_STEP);
+  };
+  $("#map-zoom-reset").onclick = () => setMapDialogZoom(mapDialog, MAP_ZOOM_MIN);
+  mapDialogContent.addEventListener("wheel", (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    const canvas = mapDialogContent.querySelector(".travel-map-canvas");
+    const bounds = mapDialogContent.getBoundingClientRect();
+    const nextZoom = (Number(canvas?.dataset.mapZoom) || MAP_ZOOM_MIN) + (event.deltaY < 0 ? MAP_ZOOM_STEP : -MAP_ZOOM_STEP);
+    setMapDialogZoom(mapDialog, nextZoom, { x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+  }, { passive: false });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && activePin) { event.preventDefault(); event.stopPropagation(); closePopover(true); } });
   window.addEventListener("resize", positionPopover);
   document.addEventListener("scroll", (event) => { if (!event.target.closest?.(".route-popover")) positionPopover(); }, true);
@@ -241,7 +312,7 @@ function setupRouteExplorer() {
       activateDayMaps(root);
     });
   });
-  $("#map-close").onclick = () => $("#map-dialog").close();
-  $("#map-dialog").addEventListener("close", () => closePopover());
+  $("#map-close").onclick = () => mapDialog.close();
+  mapDialog.addEventListener("close", () => closePopover());
   $$(".day-detail:not([hidden])").forEach(activateDayMaps);
 }

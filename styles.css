@@ -407,9 +407,16 @@ main { overflow: hidden; }
 .route-list-overview a {display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--line);text-decoration:none;font-size:14px;}
 .route-list-overview span {white-space:nowrap;color:var(--muted);font-size:12px;}
 .day-detail .travel-map-block {margin:0 0 22px;}
-#map-dialog {width:96vw;max-width:1448px;overflow:auto;padding:48px 12px 12px;background:#f6f6f1;}
-#map-dialog-content {overflow:auto;}
+#map-dialog {width:96vw;max-width:1448px;overflow:hidden;padding:48px 12px 12px;background:#f6f6f1;box-sizing:border-box;}
+#map-dialog-content {height:100%;overflow:auto;overscroll-behavior:contain;}
 #map-dialog-content .travel-map-canvas {min-width:1100px;}
+.map-zoom-controls {position:fixed;z-index:3;top:calc(8px + var(--safe-top));left:12px;display:flex;align-items:center;gap:5px;padding:3px;border:1px solid #13262f24;border-radius:999px;background:rgba(255,255,255,.94);box-shadow:0 3px 12px #13262f1f;backdrop-filter:blur(8px);}
+.map-zoom-controls button {display:grid;min-width:34px;height:34px;padding:0 9px;place-items:center;border:0;border-radius:999px;background:transparent;color:var(--ink);font-size:18px;font-weight:700;cursor:pointer;}
+.map-zoom-controls button:last-child {font-size:12px;}
+.map-zoom-controls button:hover {background:#e9efec;}
+.map-zoom-controls button:disabled {opacity:.35;cursor:not-allowed;}
+.map-zoom-controls span {min-width:42px;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;text-align:center;}
+#map-dialog-content .map-fixed-size {transform-box:fill-box;transform-origin:center;transform:scale(var(--map-inverse-zoom,1));vector-effect:non-scaling-stroke;}
 button:focus-visible,a:focus-visible {outline:2px solid var(--lake);outline-offset:3px;}
 @media(min-width:1000px) {.route-section {width:min(1100px,calc(100vw - 64px));max-width:none;margin-left:50%;transform:translateX(-50%);} .travel-map-canvas {min-width:0;}}
 .is-overview .travel-map-canvas {min-width:0;}
@@ -537,5 +544,5 @@ html[data-access="granted"] .access-gate { display: none; }
   .is-daily .map-place-dot span {width:8px;height:8px;border-width:1px;}
   .is-daily .transport-pin {width:24px;height:24px;padding:5px;border-radius:7px;}
   .is-daily .transport-pin svg {width:13px;height:13px;}
-  #map-dialog-content .daily-fullscreen {width:100%;min-width:0;}
+  #map-dialog-content .daily-fullscreen {min-width:850px;}
 }

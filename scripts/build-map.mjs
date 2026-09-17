@@ -281,6 +281,7 @@ function routePath(ids, placeById, seed = 0) {
   let result = `M${points[0].x} ${points[0].y}`;
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1], current = points[index];
+    if (previous.panel !== current.panel) { result += ` M${current.x} ${current.y}`; continue; }
     const dx = current.x - previous.x, dy = current.y - previous.y;
     const distance = Math.max(1, Math.hypot(dx, dy));
     const bend = ((seed + index) % 2 ? 1 : -1) * Math.min(30, distance * 0.1);
@@ -429,19 +430,24 @@ function buildRegion(mapData, manifest) {
   if (!mapData.places.length) return null;
   const selection = templateSelection(mapData, manifest);
   const template = selection.template;
-  const points = separatePoints(projectedLayout(mapData.places, mapData.routes, template.safeArea), mapData.places, template.safeArea);
+  const artwork = mapData.customArtwork;
+  const points = artwork ? new Map(mapData.places.map((place) => {
+    const p = place.artworkPosition;
+    if (!p || ![p.x, p.y, p.tx, p.ty].every(Number.isFinite) || p.x < 0 || p.x > GOLDEN.width || p.y < 0 || p.y > GOLDEN.height) throw new Error(`Invalid artwork position: ${place.id}`);
+    return [place.id, { x: p.x, y: p.y, panel: p.panel || "main" }];
+  })) : separatePoints(projectedLayout(mapData.places, mapData.routes, template.safeArea), mapData.places, template.safeArea);
   const occupied = [{ x: 18, y: 38, width: 335, height: 360 }, ...mapData.places.map((place) => { const point = points.get(place.id); return { x: point.x - 17, y: point.y - 17, width: 34, height: 34 }; })];
   const renderedPlaces = mapData.places.map((place, index) => {
     const point = points.get(place.id);
     const days = daysForPlace(place, mapData.routes);
     const colored = { ...place, ...point, color: GOLDEN.routeColors[((days[0] || 1) - 1) % GOLDEN.routeColors.length] };
-    const label = labelFor(colored, index, occupied);
+    const label = artwork ? { x: place.artworkPosition.tx, y: place.artworkPosition.ty, anchor: place.artworkPosition.anchor || "start" } : labelFor(colored, index, occupied);
     const primary = place.name || place.nameZh || place.id;
     const secondary = place.nameZh && place.nameZh !== primary ? place.nameZh : null;
-    return { id: place.id, ...point, color: colored.color, tx: Number(label.x.toFixed(2)), ty: Number(label.y.toFixed(2)), size: 24, anchor: label.anchor, lines: secondary ? [`${primary} /`, secondary] : [primary], query: place.query || `${primary} ${mapData.region.label}`, geo: place.geo, days };
+    return { id: place.id, ...point, color: colored.color, tx: Number(label.x.toFixed(2)), ty: Number(label.y.toFixed(2)), size: artwork ? 20 : 24, anchor: label.anchor, lines: secondary ? [`${primary} /`, secondary] : [primary], query: place.query || `${primary} ${mapData.region.label}`, geo: place.geo, days };
   });
   const placeById = new Map(renderedPlaces.map((place) => [place.id, place]));
-  const overviewPlaceIds = overviewPlaces(mapData.places, mapData.routes);
+  const overviewPlaceIds = artwork ? mapData.places.map((place) => place.id) : overviewPlaces(mapData.places, mapData.routes);
   const overviewSet = new Set(overviewPlaceIds);
   const routes = mapData.routes.map((route) => {
     const ids = (route.placeIds || []).filter((id) => placeById.has(id));
@@ -463,7 +469,7 @@ function buildRegion(mapData, manifest) {
     id: regionId,
     label: mapData.region.label,
     countryCode: mapData.region.countryCode,
-    scope: "template-schematic",
+    scope: artwork ? "artwork-schematic" : "template-schematic",
     mapMode: "frozen-template",
     templateId: template.id,
     mapModeReason: selection.reason,
@@ -471,9 +477,11 @@ function buildRegion(mapData, manifest) {
     days,
     canvas: { width: GOLDEN.width, height: GOLDEN.height },
     projection: { type: "relative-schematic", bounds: null },
-    baseImage: template.file,
+    baseImage: artwork?.file || template.file,
+    artworkPanels: artwork?.panels || [],
+    customArtwork: Boolean(artwork),
     title: mapData.region.title || mapData.title || `${mapData.region.label} · 旅行路线`,
-    ariaLabel: `${mapData.region.label}模板化旅行路线示意图，共${days.length}天`,
+    ariaLabel: `${mapData.region.label}旅行路线示意图，共${days.length}天`,
     description: mapData.region.description,
     disclaimer: mapData.disclaimer || manifest.disclaimer,
     heading: { text: mapData.region.heading || mapData.region.label, x: 33, y: 105, size: 40 },

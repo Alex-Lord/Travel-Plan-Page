@@ -18,3 +18,11 @@ Builder 先根据地点经纬度、路线跨度、方向、密度和连通关系
 十张图片均作为本项目的固定静态模板资产；普通生成不得覆盖这些文件。
 
 `aster-isles-base.png`、`mist-coast-base.png`、`generic-diagram-template.svg` 与 `generated-japan.svg` 仅作为旧实现参考保留，不再进入默认 Builder 链路。
+
+## 悉尼定制底图
+
+`sydney-user-base.png` 是用户明确提供并授权用于本项目的原图（1448 × 1086），未裁剪、重绘或改变比例。它是未经地理标定的艺术底图，不宣称道路、海岸或标记具有导航精度。
+
+后续 DIY 模式可在私有输入 `map.customArtwork` 中指定 `file` 与 `panels`，在 `map.places[].artworkPosition` 中指定插图坐标和标签位置。继续运行 `npm run build:map` 生成总览和每日路线，再重新加密发布。该选项不修改十张默认模板或默认的自动布局。
+
+蓝山采用独立示意小窗；不同 `panel` 的点之间不画跨窗连线，避免暗示它紧邻悉尼城区。真实经纬度和导航查询仍保留。原始行程及定制坐标仅随加密数据发布。

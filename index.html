@@ -11,11 +11,11 @@
   <script>
     document.documentElement.dataset.access = "locked";
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260917-1">
+  <link rel="stylesheet" href="styles.css?v=20260917-2">
   <link rel="stylesheet" href="ledger.css?v=20260910-2">
   <script src="runtime-storage.js?v=20260910-2" defer></script>
   <script src="overview-map.js?v=20260910-2" defer></script>
-  <script src="route-ui.js?v=20260917-1" defer></script>
+  <script src="route-ui.js?v=20260917-2" defer></script>
   <script src="app.js?v=20260916-2" defer></script>
   <script src="ticket-pdf-preview.js?v=20260910-2" defer></script>
   <script src="ledger.js?v=20260910-3" defer></script>
@@ -136,17 +136,6 @@
   <main class="ledger-view" id="ledger-view" data-site-view="ledger" data-module="ledger" hidden>
     <div id="ledger-root"></div>
   </main>
-
-  <dialog class="map-dialog" id="map-dialog">
-    <div class="map-zoom-controls" role="group" aria-label="地图缩放">
-      <button type="button" id="map-zoom-out" aria-label="缩小地图">−</button>
-      <span id="map-zoom-level" aria-live="polite">100%</span>
-      <button type="button" id="map-zoom-in" aria-label="放大地图">＋</button>
-      <button type="button" id="map-zoom-reset">重置</button>
-    </div>
-    <button type="button" class="dialog-close" id="map-close" aria-label="关闭路线图">关闭</button>
-    <div id="map-dialog-content" tabindex="0" aria-label="可缩放地图；按住 Ctrl 或 Command 滚动也可缩放"></div>
-  </dialog>
 
   <dialog class="ticket-dialog" id="ticket-dialog" aria-labelledby="ticket-dialog-title">
     <header>

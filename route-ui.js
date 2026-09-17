@@ -119,7 +119,7 @@ function travelMapMarkup(source, route) {
   const mapNote = source.disclaimer || "本图为模板化行程示意图，仅表达地点的相对方位与路线顺序，不代表真实比例或精确地理边界。如需使用真实国家或城市地图，可在生成后自行调整。";
   return `<div class="travel-map-block ${route ? "is-daily" : "is-overview"}" ${route ? `style="--route-color:${route.color}"` : ""}>
     <div class="travel-map-scroll"><div class="travel-map-canvas" id="${id}">${mapArtwork(source, route, id, viewport)}${places}${transport}</div></div>
-    <div class="map-utility"><span>${route ? (source.customArtwork ? "点圆点看地图 · 点图标看交通 · 示意图，非实际导航" : "点圆点看地图 · 点图标看交通") : escapeHtml(mapNote)}</span><button type="button" data-expand-map="${id}">放大 ↗</button></div>
+    <div class="map-utility"><span>${route ? (source.customArtwork ? "双指缩放 · 单指拖动 · 点圆点看地图 · 点图标看交通 · 示意图，非实际导航" : "双指缩放 · 单指拖动 · 点圆点看地图 · 点图标看交通") : `双指缩放 · 单指拖动 · ${escapeHtml(mapNote)}`}</span><div class="map-inline-zoom" role="group" aria-label="地图缩放"><button type="button" data-map-zoom-change="-${MAP_ZOOM_STEP}" aria-label="缩小地图">−</button><span data-map-zoom-level aria-live="polite">100%</span><button type="button" data-map-zoom-change="${MAP_ZOOM_STEP}" aria-label="放大地图">＋</button><button type="button" data-map-zoom-reset>重置</button></div></div>
   </div>`;
 }
 
@@ -131,8 +131,7 @@ function activateDayMaps(root) {
   });
 }
 
-function setMapDialogZoom(dialog, requestedZoom, anchor = {}) {
-  const viewport = dialog.querySelector("#map-dialog-content");
+function setMapViewportZoom(viewport, requestedZoom, anchor = {}) {
   const canvas = viewport?.querySelector(".travel-map-canvas");
   if (!viewport || !canvas) return;
   const zoom = Math.min(MAP_ZOOM_MAX, Math.max(MAP_ZOOM_MIN, requestedZoom));
@@ -153,39 +152,63 @@ function setMapDialogZoom(dialog, requestedZoom, anchor = {}) {
   const newHeight = canvas.getBoundingClientRect().height;
   viewport.scrollLeft = Math.max(0, ratioX * newWidth - anchorX);
   viewport.scrollTop = Math.max(0, ratioY * newHeight - anchorY);
-  dialog.querySelector("#map-zoom-level").textContent = `${Math.round(zoom * 100)}%`;
-  dialog.querySelector("#map-zoom-out").disabled = zoom <= MAP_ZOOM_MIN;
-  dialog.querySelector("#map-zoom-in").disabled = zoom >= MAP_ZOOM_MAX;
+  const block = viewport.closest(".travel-map-block");
+  block?.querySelector("[data-map-zoom-level]")?.replaceChildren(`${Math.round(zoom * 100)}%`);
+  const zoomOut = block?.querySelector('[data-map-zoom-change^="-"]');
+  const zoomIn = block?.querySelector('[data-map-zoom-change]:not([data-map-zoom-change^="-"])');
+  if (zoomOut) zoomOut.disabled = zoom <= MAP_ZOOM_MIN;
+  if (zoomIn) zoomIn.disabled = zoom >= MAP_ZOOM_MAX;
 }
 
-function prepareMapDialog(dialog, source) {
-  if (!dialog || !source) return;
-  const viewport = dialog.querySelector("#map-dialog-content");
-  const copy = source.cloneNode(true);
-  const svg = copy.querySelector("svg");
-  if (!viewport || !svg) return;
-  const idMap = new Map([...svg.querySelectorAll("[id]")].map((element) => [element.id, `${element.id}-zoom`]));
-  svg.querySelectorAll("[id]").forEach((element) => { element.id = idMap.get(element.id); });
-  svg.querySelectorAll("*").forEach((element) => {
-    for (const attribute of [...element.attributes]) {
-      let value = attribute.value;
-      idMap.forEach((newId, oldId) => {
-        value = value.replaceAll(`url(#${oldId})`, `url(#${newId})`);
-        if (value === `#${oldId}`) value = `#${newId}`;
-      });
-      if (value !== attribute.value) element.setAttribute(attribute.name, value);
-    }
-  });
-  copy.removeAttribute("id");
-  copy.classList.toggle("daily-fullscreen", Boolean(source.closest(".is-daily")));
-  copy.style.setProperty("--route-color", getComputedStyle(source).getPropertyValue("--route-color"));
-  svg.querySelectorAll("text, #overview-markers-zoom circle").forEach((element) => element.classList.add("map-fixed-size"));
-  viewport.replaceChildren(copy);
-  dialog.showModal();
-  copy.dataset.mapZoomBaseWidth = String(copy.getBoundingClientRect().width);
-  setMapDialogZoom(dialog, MAP_ZOOM_MIN);
-  viewport.scrollLeft = Math.max(0, (copy.scrollWidth - viewport.clientWidth) / 2);
-  viewport.scrollTop = 0;
+function touchGeometry(touches, bounds) {
+  const [first, second] = touches;
+  return {
+    distance: Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY),
+    x: (first.clientX + second.clientX) / 2 - bounds.left,
+    y: (first.clientY + second.clientY) / 2 - bounds.top
+  };
+}
+
+function prepareInlineMapZoom(viewport) {
+  if (!viewport || viewport.dataset.mapZoomReady) return;
+  const canvas = viewport.querySelector(".travel-map-canvas");
+  if (!canvas) return;
+  viewport.dataset.mapZoomReady = "true";
+  canvas.dataset.mapZoomBaseWidth = String(canvas.getBoundingClientRect().width);
+  canvas.querySelectorAll("svg text, svg #overview-markers circle")
+    .forEach((element) => element.classList.add("map-fixed-size"));
+  setMapViewportZoom(viewport, MAP_ZOOM_MIN);
+
+  let pinch = null;
+  viewport.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 2) return;
+    event.preventDefault();
+    viewport.style.height = `${canvas.getBoundingClientRect().height / (Number(canvas.dataset.mapZoom) || MAP_ZOOM_MIN)}px`;
+    const geometry = touchGeometry(event.touches, viewport.getBoundingClientRect());
+    pinch = { distance: geometry.distance, zoom: Number(canvas.dataset.mapZoom) || MAP_ZOOM_MIN };
+  }, { passive: false });
+  viewport.addEventListener("touchmove", (event) => {
+    if (!pinch || event.touches.length !== 2) return;
+    event.preventDefault();
+    const geometry = touchGeometry(event.touches, viewport.getBoundingClientRect());
+    if (!pinch.distance) return;
+    setMapViewportZoom(viewport, pinch.zoom * geometry.distance / pinch.distance, geometry);
+  }, { passive: false });
+  const endPinch = (event) => { if (event.touches.length < 2) pinch = null; };
+  viewport.addEventListener("touchend", endPinch);
+  viewport.addEventListener("touchcancel", endPinch);
+  viewport.addEventListener("wheel", (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    if (!viewport.style.height) viewport.style.height = `${canvas.getBoundingClientRect().height / (Number(canvas.dataset.mapZoom) || MAP_ZOOM_MIN)}px`;
+    const bounds = viewport.getBoundingClientRect();
+    const nextZoom = (Number(canvas.dataset.mapZoom) || MAP_ZOOM_MIN) + (event.deltaY < 0 ? MAP_ZOOM_STEP : -MAP_ZOOM_STEP);
+    setMapViewportZoom(viewport, nextZoom, { x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+  }, { passive: false });
+}
+
+function activateInlineMapZoom(root) {
+  $$(".travel-map-scroll", root).forEach(prepareInlineMapZoom);
 }
 
 function renderRoutePanel(regionId, dayNumber = 0) {
@@ -198,6 +221,7 @@ function renderRoutePanel(regionId, dayNumber = 0) {
   const route = mapRoutes.find((item) => item.day === dayNumber);
   root.innerHTML = `<div class="route-region-tabs" aria-label="旅行国家">${regions.map((region) => `<button type="button" data-route-region="${escapeHtml(region.id)}" aria-pressed="${region.id === source.id}">${escapeHtml(region.label || region.heading?.text || region.id)}</button>`).join("")}</div>
   <div class="route-day-tabs" aria-label="${escapeHtml(source.label || "当前国家")}路线日期"><button type="button" data-route-day="0" aria-pressed="${!route}">总览</button>${mapRoutes.map((item) => { const day = state.data.days.find((candidate) => candidate.day === item.day); return day ? `<button type="button" data-route-day="${item.day}" style="--route-color:${item.color}" aria-pressed="${item === route}"><i></i>${day.date.slice(5).replace("-", "/")}</button>` : ""; }).join("")}</div>${travelMapMarkup(source, route)}`;
+  activateInlineMapZoom(root);
   if (route) activateDayMaps(root);
 }
 
@@ -205,8 +229,6 @@ function setupRouteExplorer() {
   renderRoutePanel();
   let activePin = null;
   let popover = null;
-  const mapDialog = $("#map-dialog");
-  const mapDialogContent = $("#map-dialog-content");
   const closePopover = (restoreFocus = false) => {
     const opener = activePin;
     if (opener) { opener.setAttribute("aria-expanded", "false"); opener.removeAttribute("aria-controls"); }
@@ -269,10 +291,20 @@ function setupRouteExplorer() {
     }
     if (event.target.closest(".route-popover")) return;
     closePopover();
-    const expandButton = event.target.closest("[data-expand-map]");
-    if (expandButton) {
-      const source = document.getElementById(expandButton.dataset.expandMap);
-      prepareMapDialog(mapDialog, source);
+    const zoomButton = event.target.closest("[data-map-zoom-change]");
+    if (zoomButton) {
+      const viewport = zoomButton.closest(".travel-map-block")?.querySelector(".travel-map-scroll");
+      const canvas = viewport?.querySelector(".travel-map-canvas");
+      if (viewport && canvas && !viewport.style.height) viewport.style.height = `${canvas.getBoundingClientRect().height / (Number(canvas.dataset.mapZoom) || MAP_ZOOM_MIN)}px`;
+      setMapViewportZoom(viewport, (Number(canvas?.dataset.mapZoom) || MAP_ZOOM_MIN) + Number(zoomButton.dataset.mapZoomChange));
+      return;
+    }
+    const resetButton = event.target.closest("[data-map-zoom-reset]");
+    if (resetButton) {
+      const viewport = resetButton.closest(".travel-map-block")?.querySelector(".travel-map-scroll");
+      setMapViewportZoom(viewport, MAP_ZOOM_MIN);
+      viewport?.style.removeProperty("height");
+      return;
     }
     const link = event.target.closest("[data-open-day]");
     if (link) {
@@ -282,25 +314,11 @@ function setupRouteExplorer() {
       button.scrollIntoView({ behavior: "smooth" });
     }
     const toggle = event.target.closest(".day-toggle");
-    if (toggle && toggle.getAttribute("aria-expanded") === "true") activateDayMaps(toggle.closest(".day-card"));
+    if (toggle && toggle.getAttribute("aria-expanded") === "true") {
+      activateInlineMapZoom(toggle.closest(".day-card"));
+      activateDayMaps(toggle.closest(".day-card"));
+    }
   });
-  $("#map-zoom-out").onclick = () => {
-    const canvas = mapDialogContent.querySelector(".travel-map-canvas");
-    setMapDialogZoom(mapDialog, (Number(canvas?.dataset.mapZoom) || MAP_ZOOM_MIN) - MAP_ZOOM_STEP);
-  };
-  $("#map-zoom-in").onclick = () => {
-    const canvas = mapDialogContent.querySelector(".travel-map-canvas");
-    setMapDialogZoom(mapDialog, (Number(canvas?.dataset.mapZoom) || MAP_ZOOM_MIN) + MAP_ZOOM_STEP);
-  };
-  $("#map-zoom-reset").onclick = () => setMapDialogZoom(mapDialog, MAP_ZOOM_MIN);
-  mapDialogContent.addEventListener("wheel", (event) => {
-    if (!event.ctrlKey && !event.metaKey) return;
-    event.preventDefault();
-    const canvas = mapDialogContent.querySelector(".travel-map-canvas");
-    const bounds = mapDialogContent.getBoundingClientRect();
-    const nextZoom = (Number(canvas?.dataset.mapZoom) || MAP_ZOOM_MIN) + (event.deltaY < 0 ? MAP_ZOOM_STEP : -MAP_ZOOM_STEP);
-    setMapDialogZoom(mapDialog, nextZoom, { x: event.clientX - bounds.left, y: event.clientY - bounds.top });
-  }, { passive: false });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && activePin) { event.preventDefault(); event.stopPropagation(); closePopover(true); } });
   window.addEventListener("resize", positionPopover);
   document.addEventListener("scroll", (event) => { if (!event.target.closest?.(".route-popover")) positionPopover(); }, true);
@@ -308,11 +326,13 @@ function setupRouteExplorer() {
   window.addEventListener("travel-view:shown", () => {
     const roots = [$("#route-explorer"), ...$$(".day-detail:not([hidden])")].filter(Boolean);
     roots.forEach((root) => {
+      activateInlineMapZoom(root);
       $$(".is-daily .travel-map-scroll", root).forEach((view) => view.removeAttribute("data-positioned"));
       activateDayMaps(root);
     });
   });
-  $("#map-close").onclick = () => mapDialog.close();
-  mapDialog.addEventListener("close", () => closePopover());
-  $$(".day-detail:not([hidden])").forEach(activateDayMaps);
+  $$(".day-detail:not([hidden])").forEach((root) => {
+    activateInlineMapZoom(root);
+    activateDayMaps(root);
+  });
 }

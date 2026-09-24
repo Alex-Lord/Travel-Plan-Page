@@ -16,3 +16,4 @@ reports/private/
 .env
 .edgeone/*
 .tef_dist/*
+.gstack/

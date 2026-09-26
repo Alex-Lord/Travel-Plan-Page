@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a print-ready Sydney itinerary workbook from the local trip source."""
+"""Generate a concise bilingual, A4-print-ready Sydney itinerary workbook."""
 
 from __future__ import annotations
 
@@ -24,176 +24,145 @@ MUTED = "5E6B76"
 WHITE = "FFFFFF"
 THIN = Side(style="thin", color="B7C7D2")
 
-TYPE_LABELS = {
-    "arrival": "抵达", "departure": "出发", "flight": "航班",
-    "transfer": "交通", "rail": "火车", "ferry": "轮渡",
-    "attraction": "景点", "walk": "步行", "hike": "徒步",
-    "shopping": "城市漫步", "rest": "休息/用餐", "return": "返程",
-    "note": "提示",
+DAY_ENGLISH_TITLES = {
+    1: "Arrival & Harbour Walk",
+    2: "Taronga Zoo, Botanic Garden & The Rocks",
+    3: "Bondi to Coogee Coastal Walk",
+    4: "Blue Mountains Day Trip",
+    5: "Manly, Shelly Beach & Darling Harbour",
+    6: "Departure · Sydney to Beijing",
+}
+
+DAY_PLANS = {
+    1: (
+        "06:25 抵达；入境、寄存行李；海港步行",
+        "Arrive 06:25; immigration, luggage drop; harbour walk",
+        ["sydney-airport", "circular-quay", "opera-house", "botanic-garden", "the-rocks"],
+        "若入境延误或疲劳，缩短 The Rocks / Observatory Hill。\nIf delayed or tired, skip The Rocks / Observatory Hill.",
+    ),
+    2: (
+        "09:00 从 Song Hotel 出发；10:12 F2；Taronga Zoo；植物园与 The Rocks",
+        "Leave Song Hotel 09:00; F2 at 10:12; Taronga Zoo; Botanic Garden & The Rocks",
+        ["circular-quay", "taronga-zoo", "opera-house", "botanic-garden", "mrs-macquarie", "the-rocks"],
+        "09:12 F2 不可行；09:32 只适合立即打车，乘火车/步行建议 10:12，并缩短下午步行。\nThe 09:12 F2 is not feasible; 09:32 requires an immediate taxi, while train/walk should target 10:12 and shorten the afternoon walk.",
+    ),
+    3: (
+        "09:00 出发；大头贴；Bondi → Coogee 海岸徒步",
+        "Leave 09:00; photobooth; Bondi → Coogee coastal walk",
+        ["bondi-beach", "love-letters-photobooth", "tamarama", "bronte", "clovelly", "coogee"],
+        "带水、防晒与防风层；体力不足可在 Bronte 结束。\nBring water, sun protection and a wind layer; finish at Bronte if needed.",
+    ),
+    4: (
+        "07:30 BMT 火车；Echo Point；11:00 Scenic World；傍晚返悉尼",
+        "07:30 BMT train; Echo Point; Scenic World at 11:00; return by evening",
+        ["central-station", "katoomba", "echo-point", "scenic-world"],
+        "只安排 Scenic World；雨雾或湿滑时及时缩短。\nScenic World only; shorten plans in fog, rain or wet conditions.",
+    ),
+    5: (
+        "09:30 F1 轮渡；Manly 与 Shelly Beach；Darling Harbour 收尾",
+        "09:30 F1 ferry; Manly & Shelly Beach; finish at Darling Harbour",
+        ["circular-quay", "manly", "shelly-beach", "darling-harbour"],
+        "前夜查 F1；最晚约 19:00 回酒店整理行李。\nCheck F1 the night before; return by about 19:00 to pack.",
+    ),
+    6: (
+        "06:30 出发去机场；10:05 CZ326；广州转机返北京",
+        "Leave for airport 06:30; CZ326 at 10:05; connect in Guangzhou to Beijing",
+        ["central-station", "sydney-airport"],
+        "优先保障国际航班；柜台确认两段登机牌与行李直挂。\nPrioritise the international flight; confirm both boarding passes and through-checked bags.",
+    ),
 }
 
 
-def add_header(ws, title: str, subtitle: str, end_column: int) -> None:
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=end_column)
-    cell = ws.cell(1, 1, title)
-    cell.fill = PatternFill("solid", fgColor=NAVY)
-    cell.font = Font(name="Microsoft YaHei", size=18, bold=True, color=WHITE)
-    cell.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 31
-
-    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=end_column)
-    cell = ws.cell(2, 1, subtitle)
-    cell.fill = PatternFill("solid", fgColor=PALE_BLUE)
-    cell.font = Font(name="Microsoft YaHei", size=9, color=MUTED)
-    cell.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[2].height = 23
+def bilingual_place_name(place_id: str, places: dict[str, dict]) -> str:
+    place = places.get(place_id, {})
+    chinese = place.get("nameZh") or place.get("name") or place_id
+    english = place.get("name") or chinese
+    return chinese if chinese == english else f"{chinese} / {english}"
 
 
-def style_table_header(ws, row: int, values: list[str]) -> None:
-    for column, value in enumerate(values, 1):
-        cell = ws.cell(row, column, value)
-        cell.fill = PatternFill("solid", fgColor=BLUE)
-        cell.font = Font(name="Microsoft YaHei", size=9, bold=True, color=WHITE)
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
-    ws.row_dimensions[row].height = 22
-
-
-def style_body_row(ws, row: int, columns: int, fill: str | None = None) -> None:
-    for column in range(1, columns + 1):
-        cell = ws.cell(row, column)
-        if fill:
-            cell.fill = PatternFill("solid", fgColor=fill)
-        cell.font = Font(name="Microsoft YaHei", size=8.5, color="17212B")
-        cell.alignment = Alignment(vertical="top", wrap_text=True)
-        cell.border = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
-
-
-def place_names(item: dict, places: dict[str, dict]) -> str:
-    ids = item.get("placeIds") or ([item["placeId"]] if item.get("placeId") else [])
-    names = []
-    for place_id in ids:
-        place = places.get(place_id, {})
-        name = place.get("nameZh") or place.get("name")
-        if name and name not in names:
-            names.append(name)
-    return " → ".join(names) or "—"
-
-
-def short_text(text: str, limit: int) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= limit else f"{text[:limit - 1]}…"
-
-
-def configure_page(ws, orientation: str, fit_height: int | None = None) -> None:
+def configure_page(ws) -> None:
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
-    ws.page_setup.orientation = orientation
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    if fit_height is not None:
-        ws.page_setup.fitToHeight = fit_height
-    ws.page_margins = PageMargins(left=0.25, right=0.25, top=0.35, bottom=0.35, header=0.15, footer=0.15)
-    ws.oddFooter.center.text = "第 &P / &N 页"
+    ws.page_margins = PageMargins(left=0.2, right=0.2, top=0.25, bottom=0.25, header=0.1, footer=0.1)
+    ws.oddFooter.center.text = "Sydney Itinerary · 第 &P / &N 页"
     ws.oddFooter.center.size = 8
     ws.oddFooter.center.font = "Microsoft YaHei"
     ws.sheet_view.showGridLines = False
 
 
-def build_overview(workbook: Workbook, data: dict, places: dict[str, dict]) -> None:
-    ws = workbook.active
-    ws.title = "A4行程总览"
-    add_header(ws, "悉尼 · A4 行程总览", "2026.09.26 — 2026.10.01  |  2 人  |  打印前请复核实时天气、交通与预约状态", 5)
-    style_table_header(ws, 4, ["日期", "主题", "关键时间", "路线 / 地点", "当日重点与提醒"])
-    widths = [12, 25, 21, 36, 54]
-    for index, width in enumerate(widths, 1):
-        ws.column_dimensions[get_column_letter(index)].width = width
-
-    row = 5
-    for day in data["days"]:
-        times = "\n".join(item["time"] for item in day["schedule"])
-        route = []
-        for item in day["schedule"]:
-            name = place_names(item, places)
-            if name != "—" and name not in route:
-                route.append(name)
-        focus = "\n".join(
-            f"• {short_text(item['text'], 115)}" for item in day["schedule"]
-        )
-        date_label = datetime.strptime(day["date"], "%Y-%m-%d").strftime("%m/%d")
-        weekday = "一二三四五六日"[datetime.strptime(day["date"], "%Y-%m-%d").weekday()]
-        ws.cell(row, 1, f"D{day['day']}  {date_label}\n周{weekday}")
-        ws.cell(row, 2, day["title"])
-        ws.cell(row, 3, times)
-        ws.cell(row, 4, "\n".join(route))
-        ws.cell(row, 5, focus)
-        style_body_row(ws, row, 5, PALE_SAND if day["day"] % 2 else None)
-        ws.cell(row, 1).font = Font(name="Microsoft YaHei", size=9, bold=True, color=NAVY)
-        ws.cell(row, 2).font = Font(name="Microsoft YaHei", size=9, bold=True, color=NAVY)
-        ws.row_dimensions[row].height = max(72, 22 * len(day["schedule"]))
-        row += 1
-
-    ws.merge_cells(start_row=row + 1, start_column=1, end_row=row + 1, end_column=5)
-    note = ws.cell(row + 1, 1, "总提醒：两人各自固定使用交通支付介质；蓝山、海岸线和 Manly 行程前复核天气与班次；返程日 06:30 出发，优先保障国际航班。")
-    note.font = Font(name="Microsoft YaHei", size=8.5, italic=True, color=MUTED)
-    note.alignment = Alignment(wrap_text=True, vertical="center")
-    note.fill = PatternFill("solid", fgColor=PALE_BLUE)
-    ws.row_dimensions[row + 1].height = 30
-    ws.print_title_rows = "$1:$4"
-    configure_page(ws, ws.ORIENTATION_LANDSCAPE, 1)
-
-
-def build_daily_details(workbook: Workbook, data: dict, places: dict[str, dict]) -> None:
-    ws = workbook.create_sheet("每日详表")
-    add_header(ws, "悉尼 · 每日详细行程", "2026.09.26 — 2026.10.01  |  每日自动分页（A4 纵向）", 4)
-    style_table_header(ws, 4, ["时间", "类型", "地点", "安排与注意事项"])
-    for index, width in enumerate([17, 14, 31, 71], 1):
-        ws.column_dimensions[get_column_letter(index)].width = width
-
-    row = 5
-    for day_index, day in enumerate(data["days"]):
-        if day_index:
-            ws.row_breaks.append(row - 1)
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
-        date_label = datetime.strptime(day["date"], "%Y-%m-%d").strftime("%Y 年 %m 月 %d 日")
-        heading = ws.cell(row, 1, f"D{day['day']} · {date_label} · {day['title']}")
-        heading.fill = PatternFill("solid", fgColor=NAVY)
-        heading.font = Font(name="Microsoft YaHei", size=11, bold=True, color=WHITE)
-        heading.alignment = Alignment(vertical="center")
-        ws.row_dimensions[row].height = 25
-        row += 1
-        for item in day["schedule"]:
-            ws.cell(row, 1, item["time"])
-            ws.cell(row, 2, TYPE_LABELS.get(item.get("type"), item.get("type", "安排")))
-            ws.cell(row, 3, place_names(item, places))
-            ws.cell(row, 4, item["text"])
-            style_body_row(ws, row, 4, PALE_SAND if row % 2 else None)
-            ws.cell(row, 1).font = Font(name="Microsoft YaHei", size=8.5, bold=True, color=NAVY)
-            ws.cell(row, 2).alignment = Alignment(horizontal="center", vertical="top", wrap_text=True)
-            ws.row_dimensions[row].height = max(38, min(78, 14 + len(item["text"]) // 2))
-            row += 1
-        if day.get("notes"):
-            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
-            note = ws.cell(row, 1, "当日备忘：" + "；".join(day["notes"]))
-            note.fill = PatternFill("solid", fgColor=PALE_BLUE)
-            note.font = Font(name="Microsoft YaHei", size=8, color=MUTED, italic=True)
-            note.alignment = Alignment(wrap_text=True, vertical="center")
-            note.border = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
-            ws.row_dimensions[row].height = 28
-            row += 1
-        row += 1
-
-    ws.print_title_rows = "$1:$4"
-    configure_page(ws, ws.ORIENTATION_PORTRAIT)
+def style_cell(cell, *, fill: str | None = None, bold: bool = False, color: str = "17212B", size: float = 8.5, horizontal: str | None = None) -> None:
+    if fill:
+        cell.fill = PatternFill("solid", fgColor=fill)
+    cell.font = Font(name="Microsoft YaHei", size=size, bold=bold, color=color)
+    cell.alignment = Alignment(horizontal=horizontal, vertical="top", wrap_text=True)
+    cell.border = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
 
 def main() -> None:
     data = json.loads(SOURCE.read_text(encoding="utf-8"))
     places = {place["id"]: place for place in data.get("places", [])}
+
     workbook = Workbook()
     workbook.properties.creator = "Travel Plan Page"
-    workbook.properties.title = "悉尼行程 A4 打印版"
-    build_overview(workbook, data, places)
-    build_daily_details(workbook, data, places)
+    workbook.properties.title = "Sydney Bilingual A4 Itinerary"
+    ws = workbook.active
+    ws.title = "A4 双语行程"
+
+    ws.merge_cells("A1:E1")
+    title = ws["A1"]
+    title.value = "悉尼行程 · Sydney Itinerary"
+    title.fill = PatternFill("solid", fgColor=NAVY)
+    title.font = Font(name="Microsoft YaHei", size=18, bold=True, color=WHITE)
+    title.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 31
+
+    ws.merge_cells("A2:E2")
+    subtitle = ws["A2"]
+    subtitle.value = "2026.09.26 — 2026.10.01  |  2 人 / 2 travellers  |  A4 landscape print edition"
+    subtitle.fill = PatternFill("solid", fgColor=PALE_BLUE)
+    subtitle.font = Font(name="Microsoft YaHei", size=9, color=MUTED)
+    subtitle.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 22
+
+    headers = ["日期\nDate", "主题\nTheme", "时间与安排\nTime & plan", "路线\nRoute", "重点提醒\nKey note"]
+    for column, value in enumerate(headers, 1):
+        cell = ws.cell(4, column, value)
+        style_cell(cell, fill=BLUE, bold=True, color=WHITE, size=9, horizontal="center")
+    ws.row_dimensions[4].height = 28
+
+    widths = [13, 28, 43, 53, 44]
+    for column, width in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(column)].width = width
+
+    for row, day in enumerate(data["days"], 5):
+        number = day["day"]
+        plan_cn, plan_en, route_ids, note = DAY_PLANS[number]
+        date = datetime.strptime(day["date"], "%Y-%m-%d")
+        weekdays_cn = "一二三四五六日"
+        date_value = f"D{number} · {date:%m/%d} 周{weekdays_cn[date.weekday()]}\nDay {number} · {date:%a, %d %b}"
+        theme = f"{day['title']}\n{DAY_ENGLISH_TITLES[number]}"
+        plan = f"{plan_cn}\n{plan_en}"
+        route = " → \n".join(bilingual_place_name(place_id, places) for place_id in route_ids)
+        values = [date_value, theme, plan, route, note]
+        for column, value in enumerate(values, 1):
+            cell = ws.cell(row, column, value)
+            style_cell(cell, fill=PALE_SAND if number % 2 else None, bold=column in (1, 2), color=NAVY if column in (1, 2) else "17212B", size=8.5)
+        ws.row_dimensions[row].height = 78
+
+    ws.merge_cells("A12:E12")
+    footer = ws["A12"]
+    footer.value = (
+        "通用提醒 / General: 两人各自固定使用交通支付介质；蓝山、海岸线与 Manly 出发前复核天气、开放与班次。\n"
+        "Use a separate, consistent payment method per traveller; recheck weather, opening hours and services before Blue Mountains, coastal and Manly days."
+    )
+    style_cell(footer, fill=PALE_BLUE, color=MUTED, size=8)
+    ws.row_dimensions[12].height = 30
+    ws.print_title_rows = "$1:$4"
+    configure_page(ws)
+
     workbook.save(DESTINATION)
     print(DESTINATION)
 
